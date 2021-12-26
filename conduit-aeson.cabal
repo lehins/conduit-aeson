@@ -70,12 +70,9 @@ test-suite tests
                     , conduit
                     , containers
                     , conduit-aeson
-                    , genvalidity
-                    , genvalidity-aeson
-                    , genvalidity-containers
-                    , genvalidity-hspec
                     , hspec
                     , QuickCheck
+                    , scientific
                     , text
   build-tool-depends: hspec-discover:hspec-discover
 
