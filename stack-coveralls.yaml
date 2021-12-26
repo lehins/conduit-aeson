@@ -1,5 +1,7 @@
-resolver: lts-18.14
+resolver: lts-14.27
 packages:
 - .
+system-ghc: true
 extra-deps:
 - doctest-parallel-0.2@sha256:52953fc3684ab72146de87bfa50dd335724f1edd52749cfdb9b1c16da98f4739,5454
+

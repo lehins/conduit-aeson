@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE LambdaCase #-}
 -- |
@@ -90,12 +91,19 @@ conduitObjectEither ::
   => ConduitM BS.ByteString (Either ParserError (k, v)) m ()
 conduitObjectEither = conduitObjectParserEither .| stopOnNothing .| mapC toKeyValue
   where
+    _id x = x -- work around an aeson rewrite rule.
     toKeyValue (Left err) = Left err
     toKeyValue (Right (_, (k, v))) =
       first AesonParserError $ do
         key <-
           case fromJSONKey of
+#if MIN_VERSION_aeson(1,5,0)
             FromJSONKeyCoerce       -> Right $ coerce k
+#else
+            FromJSONKeyCoerce {}
+               | FromJSONKeyText f <- fmap _id fromJSONKey -> Right $ f k
+               | otherwise -> error "Impossible: failed to convert coercible FromJSONKeyCoerce"
+#endif
             FromJSONKeyText f       -> Right $ f k
             FromJSONKeyTextParser p -> Aeson.parseEither p k
             FromJSONKeyValue p      -> Aeson.parseEither p (String k)
