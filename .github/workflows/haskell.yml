@@ -33,9 +33,9 @@ jobs:
             ghc: 8.10.7
           - resolver: nightly # reports a problem with happy?!
             ghc: 9.0.1
-        # exclude:
-        #   - resolver: lts-18
-        #     os: windows-latest # Too buggy, occasional ghc crashes
+        exclude:
+          - resolver: lts-18
+            os: windows-latest # Too buggy, occasional ghc crashes
 
     env:
       STACK_YAML: stack.yaml
@@ -84,7 +84,6 @@ jobs:
         COVERALLS_TOKEN: ${{ secrets.COVERALLS_TOKEN }}
       run: |
         set -ex
-        echo "STACK_ROOT: ${{ steps.setup-haskell-cabal.outputs.stack-root }}"
         [ -n "${{ matrix.stack-yaml }}" ] && STACK_YAML=${{ matrix.stack-yaml }}
         curl -sSL https://raw.githubusercontent.com/lehins/utils/5d9b17f2f084ce54978dbd71974970483063a540/haskell/git-modtime/git-modtime.hs -o git-modtime.hs
         mkdir -p .stack-work
@@ -118,14 +117,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { cabal: "3.4", os: ubuntu-latest, ghc: "7.10.3" }
           - { cabal: "3.6", os: ubuntu-latest, ghc: "8.0.2" }
           - { cabal: "3.6", os: ubuntu-latest, ghc: "8.2.2" }
           - { cabal: "3.6", os: ubuntu-latest, ghc: "9.0.1" }
           - { cabal: "3.6", os: ubuntu-latest, ghc: "9.2.1" }
-          - { cabal: "3.6", os: windows-latest, ghc: "8.0.2" } # OOM on tests
+          - { cabal: "3.6", os: windows-latest, ghc: "8.0.2" }
           - { cabal: "3.6", os: windows-latest, ghc: "8.2.2" }
-          - { cabal: "3.6", os: windows-latest, ghc: "9.0.1" } # OOM on tests
+          - { cabal: "3.6", os: windows-latest, ghc: "9.0.1" }
           - { cabal: "3.6", os: windows-latest, ghc: "9.2.1" }
           - { cabal: "3.6", os: macOS-latest, ghc: "8.0.2" }
           - { cabal: "3.6", os: macOS-latest, ghc: "8.2.2" }
