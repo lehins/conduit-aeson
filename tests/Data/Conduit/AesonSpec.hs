@@ -30,8 +30,10 @@ sizedArbitraryValue n
     number = Number <$> (scientific <$> arbitrary <*> arbitrary)
     string = String <$> arbitrary
     array = Array . fromList <$> arbitrary
-    object' = Object . fromList <$> arbitrary
+    object' = listToObject <$> arbitrary
 
+listToObject :: [(String, Value)] -> Value
+listToObject xs = object [(fromString k, v) | (k, v) <- xs]
 
 spec :: Spec
 spec = do
@@ -41,9 +43,9 @@ spec = do
           runConduit
             (sourceLazy (encode (Array (fromList xs))) .| conduitArray .| sinkList)
         xs' `shouldBe` xs
-    prop "conduitObject" $ \(ls :: [(T.Text, Value)]) -> do
+    prop "conduitObject" $ \(ls :: [(String, Value)]) -> do
         let xs = Map.fromList ls
         xs' <-
           runConduit
-            (sourceLazy (encode (Object (fromList (Map.toList xs)))) .| conduitObject .| sinkList)
+            (sourceLazy (encode (listToObject (Map.toAscList xs))) .| conduitObject .| sinkList)
         Map.fromList xs' `shouldBe` xs

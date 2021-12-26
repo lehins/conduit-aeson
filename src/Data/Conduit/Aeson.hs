@@ -52,11 +52,11 @@ import qualified Data.Text as T
 -- @since 0.1.0
 data ParserError
   = AttoParserError ParseError
-  -- ^ Attoparse parser failure
+  -- ^ Attoparsec parser failure
   | AesonParserError String
   -- ^ Aeson parser failure
   | NotTerminatedInput
-  -- ^ Failure when input was not properly terminated and end of input was reached.
+  -- ^ Parser failure when end of input was reached without proper termination.
   deriving Show
 instance Exception ParserError
 
@@ -266,7 +266,7 @@ delimiterParser dp t =
     expectTermination =
       Atto8.peekChar >>= \case
         Just c
-          | c /= t -> fail $ "Unexpected delimiter: " <> show c
+          | c /= t -> fail $ "Unexpected delimiter: " ++ show c
         _ -> pure ()
 
 -- | Consume @'['@ with all preceeding space characters
