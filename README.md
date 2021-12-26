@@ -13,6 +13,17 @@ infinite streams of JSON objects.
 
 ## Status
 
-| Language | Github Actions | Coveralls |
-|:--------:|:--------------:|:---------:|
-| ![GitHub top language](https://img.shields.io/github/languages/top/lehins/conduit-aeson.svg) | [![Build Status](https://github.com/lehins/conduit-aeson/workflows/CI/badge.svg)](https://github.com/lehins/conduit-aeson/actions) | [![Coverage Status](https://coveralls.io/repos/github/lehins/conduit-aeson/badge.svg?branch=master)](https://coveralls.io/github/lehins/conduit-aeson?branch=master) |
+| Github Actions | Coveralls | Hackage | Nightly | LTS |
+|:--------------:|:---------:|:-------:|:-------:|:---:|
+| [![Build Status][GA-badge]][GA-link] | [![Coverage Status][Coveralls-badge]][Coveralls-link] | [![Hackage][Hackage-badge][Hackage-link] | [![Nightly][Nightly-badge][Nightly-link] | [![LTS][LTS-badge][LTS-link]
+
+[GA-badge]: https://github.com/lehins/conduit-aeson/workflows/CI/badge.svg
+[GA-link]: https://github.com/lehins/conduit-aeson/actions
+[Coveralls-badge]: https://coveralls.io/repos/github/lehins/conduit-aeson/badge.svg?branch=master
+[Coveralls-link]: https://coveralls.io/github/lehins/conduit-aeson?branch=master
+[Hackage-badge]: https://img.shields.io/hackage/v/conduit-aeson.svg
+[Hackage-link]: https://hackage.haskell.org/package/conduit-aeson
+[Nightly-badge]: https://www.stackage.org/package/conduit-aeson/badge/nightly
+[Nightly-link]: https://www.stackage.org/nightly/package/conduit-aeson
+[LTS-badge]: https://www.stackage.org/package/conduit-aeson/badge/lts
+[LTS-link]: https://www.stackage.org/lts/package/conduit-aeson
