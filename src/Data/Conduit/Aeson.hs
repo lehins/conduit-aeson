@@ -1,7 +1,8 @@
+{-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE LambdaCase #-}
 -- |
 -- Module      : Data.Conduit.Aeson
--- Copyright   : (c) Alexey Kuleshevich 2021
+-- Copyright   : (c) Alexey Kuleshevich 2021-2022
 -- License     : BSD3
 -- Maintainer  : Alexey Kuleshevich <alexey@kuleshevi.ch>
 -- Stability   : experimental
@@ -14,10 +15,20 @@ module Data.Conduit.Aeson
   , conduitObject
   , conduitObjectEither
   -- * Helpers
+  -- ** Conduit
   , conduitArrayParserEither
   , conduitArrayParserNoStartEither
   , conduitObjectParserEither
   , conduitObjectParserNoStartEither
+  -- ** Attoparsec
+  , skipSpace
+  , commaParser
+  , delimiterParser
+  , valuePrefixParser
+  , valueParser
+  , objectEntryPrefixParser
+  , objectEntryParser
+  , objectEntryMaybeParser
   ) where
 
 import Conduit
@@ -35,31 +46,47 @@ import Data.Coerce
 import Data.Conduit.Attoparsec
 import qualified Data.Text as T
 
+-- | Various reason for failed parsing.
+--
+-- @since 0.1.0
 data ParserError
   = AttoParserError ParseError
+  -- ^ Attoparse parser failure
   | AesonParserError String
+  -- ^ Aeson parser failure
   | NotTerminatedInput
-  -- ^ Raised when reached end of stream without encountering expected closing
-  -- bracket.
+  -- ^ Failure when input was not properly terminated and end of input was reached.
   deriving Show
 instance Exception ParserError
 
 
--- | Parse a top level object into a stream of key/value pairs. Throws
+-- | Parse a top level object into a stream of key/value pairs. Throws a
 -- `ParserError` on invalid input, see `conduitObjectEither` for more graceful
 -- error handling.
 --
+-- ====__Examples__
+--
+-- >>> :set -XOverloadedStrings
+-- >>> :set -XTypeApplications
+-- >>> import Conduit
+-- >>> let input = "{ \"foo\": 1, \"bar\": 2, \"baz\": 3 }"
+-- >>> runConduit $ yield input .| conduitObject @String @Int .| printC
+-- ("foo",1)
+-- ("bar",2)
+-- ("baz",3)
+--
 -- @since 0.1.0
 conduitObject ::
-     (FromJSONKey k, FromJSON v, MonadThrow m) => ConduitM BS.ByteString (k, v) m ()
+     forall k v m. (FromJSONKey k, FromJSON v, MonadThrow m)
+  => ConduitM BS.ByteString (k, v) m ()
 conduitObject = conduitObjectEither .| mapMC (either throwM pure)
 
--- | Parse a top level object into a stream of key/value pairs with potential
--- failures as `ParserError`.
+-- | Same as `conduitObject`, except fails gracefully. Parse a top level object
+-- into a stream of key/value pairs with potential failures as @`Left` `ParserError`@.
 --
 -- @since 0.1.0
 conduitObjectEither ::
-     (FromJSONKey k, FromJSON v, Monad m)
+     forall k v m. (FromJSONKey k, FromJSON v, Monad m)
   => ConduitM BS.ByteString (Either ParserError (k, v)) m ()
 conduitObjectEither = conduitObjectParserEither .| stopOnNothing .| mapC toKeyValue
   where
@@ -75,7 +102,9 @@ conduitObjectEither = conduitObjectParserEither .| stopOnNothing .| mapC toKeyVa
         val <- Aeson.parseEither Aeson.parseJSON v
         Right (key, val)
 
--- | Parse a top level key value mapping. Expects opening and closing braces @{}@
+-- | Parse a top level key value mapping. Expects opening and closing braces
+-- @'{'@ and @'}'@. `Nothing` indicates terminating closing curly brace has been
+-- reached.
 --
 -- @since 0.1.0
 conduitObjectParserEither ::
@@ -84,50 +113,111 @@ conduitObjectParserEither ::
 conduitObjectParserEither = do
   sinkParserEither objectEntryPrefixParser >>= \case
     Left err -> yield $ Left err
-    Right () -> conduitObjectParserNoStartEither
+    Right () -> conduitParserEither (objectEntryMaybeParser commaParser)
 
 -- | Expects that there is no opening of a top level object curly brace @{@, but
--- will stop as soon as the closing one @}@ is reached.
+-- will stop as soon as the closing one @}@ is reached. It is suitable for infinite
+-- streams of key value pairs delimited by a custom character (eg. a new line)
+--
+-- >>> import Conduit
+-- >>> import Data.ByteString.Char8 (ByteString, pack)
+-- >>> import Data.Attoparsec.ByteString.Char8 (char8)
+-- >>> let input = pack "\"foo\":1|\"bar\":2|" :: ByteString
+-- >>> let parser = conduitObjectParserNoStartEither (char8 '|')
+-- >>> runConduit (yield input .| parser .| printC)
+-- Right (1:1 (0)-1:9 (8),("foo",Number 1.0))
+-- Right (1:9 (8)-1:17 (16),("bar",Number 2.0))
 --
 -- @since 0.1.0
 conduitObjectParserNoStartEither ::
-     Monad m
-  => ConduitM BS.ByteString (Either ParseError (PositionRange, Maybe (T.Text, Value))) m ()
-conduitObjectParserNoStartEither = conduitParserEither objectEntryParser
+     forall m a. Monad m
+  => Atto.Parser a
+  -- ^ Delimiter parser (in JSON it is a comma @','@)
+  -> ConduitM BS.ByteString (Either ParseError (PositionRange, (T.Text, Value))) m ()
+conduitObjectParserNoStartEither = conduitParserEither . objectEntryParser
 
 
-
--- | Parse a top level array into a stream of values.
+-- | Parse a top level array into a stream of json values.  Throws a
+-- `ParserError` on invalid input, see `conduitArrayEither` for more graceful
+-- error handling.
+--
+-- ====__Examples__
+--
+-- >>> :set -XTypeApplications
+-- >>> :set -XOverloadedStrings
+-- >>> import Conduit
+-- >>> runConduit $ yield ("[1,2,3,4]") .| conduitArray @Int .| printC
+-- 1
+-- 2
+-- 3
+-- 4
 --
 -- @since 0.1.0
 conduitArray ::
-     (FromJSON v, MonadThrow m) => ConduitM BS.ByteString v m ()
+     forall v m. (FromJSON v, MonadThrow m)
+  => ConduitM BS.ByteString v m ()
 conduitArray = conduitArrayEither .| mapMC (either throwM pure)
 
+-- | Parse a top level key value mapping. Expects opening and closing braces
+-- @'{'@ and @'}'@. `Nothing` indicates terminating closing curly brace has been
+-- reached.
+--
+-- @since 0.1.0
 conduitArrayEither ::
-     (FromJSON v, Monad m)
+     forall v m. (FromJSON v, Monad m)
   => ConduitM BS.ByteString (Either ParserError v) m ()
 conduitArrayEither = conduitArrayParserEither .| stopOnNothing .| mapC toValue
   where
     toValue (Left err) = Left err
     toValue (Right (_, v)) = first AesonParserError $ Aeson.parseEither Aeson.parseJSON v
 
--- | Parse a top level key value mapping. Expects both opening and closing braces @[]@
+-- | Parse a top level array as a stream of JSON values. Expects opening and
+-- closing braket @'['@ and @']'@. `Nothing` indicates terminating closing square
+-- braket has been reached.
+--
+-- @since 0.1.0
 conduitArrayParserEither ::
      Monad m
   => ConduitM  BS.ByteString (Either ParseError (PositionRange, Maybe Value)) m ()
 conduitArrayParserEither = do
   sinkParserEither valuePrefixParser >>= \case
     Left err -> yield $ Left err
-    Right () -> conduitArrayParserNoStartEither
+    Right () -> conduitParserEither (valueMaybeParser commaParser)
 
--- | Expects that there is no opening of a top level array brace @[@, but will
--- stop as soon as the closing one @]@ is reached, possibly leaving behind
--- unconsumed input.
+-- | Parse a stream of JSON values. Expects that there are no opening or closing
+-- top level array braces @[@ and @]@. Could be very useful for consuming
+-- infinite streams of log entries, where each entry is formatted as a JSON
+-- value.
+--
+-- ====__Examples__
+--
+-- Parse a new line delimited JSON values.
+--
+-- >>> import Conduit
+-- >>> import Data.ByteString.Char8 (ByteString, pack)
+-- >>> import Data.Attoparsec.ByteString.Char8 (char8)
+-- >>> let input = pack "{\"foo\":1}\n{\"bar\":2}\n" :: ByteString
+-- >>> let parser = conduitArrayParserNoStartEither (char8 '\n')
+-- >>> runConduit (yield input .| parser .| printC)
+-- Right (1:1 (0)-2:1 (10),Object (fromList [("foo",Number 1.0)]))
+-- Right (2:1 (10)-3:1 (20),Object (fromList [("bar",Number 2.0)]))
+--
+-- Or a simple comma delimited list:
+--
+-- >>> runConduit $ yield (pack "1,2,3,\"Haskell\",") .| conduitArrayParserNoStartEither (char8 ',') .| printC
+-- Right (1:1 (0)-1:3 (2),Number 1.0)
+-- Right (1:3 (2)-1:5 (4),Number 2.0)
+-- Right (1:5 (4)-1:7 (6),Number 3.0)
+-- Right (1:7 (6)-1:17 (16),String "Haskell")
+--
+-- @since 0.1.0
 conduitArrayParserNoStartEither ::
-     Monad m
-  => ConduitM BS.ByteString (Either ParseError (PositionRange, Maybe Value)) m ()
-conduitArrayParserNoStartEither = conduitParserEither valueParser
+     forall m a. Monad m
+  => Atto.Parser a
+  -- ^ Delimiter parser (in JSON it is a comma @','@)
+  -> ConduitM BS.ByteString (Either ParseError (PositionRange, Value)) m ()
+conduitArrayParserNoStartEither = conduitParserEither . valueParser
+
 
 stopOnNothing ::
      Monad m
@@ -143,9 +233,27 @@ stopOnNothing = do
 
 -- Attoparsec
 
-delimitedParser :: Char -> Char -> Atto.Parser Aeson.Value
-delimitedParser d t =
-  json' <* skipSpace <* (void (Atto8.char8 d) <|> expectTermination)
+-- | Skips all spaces and newlines
+--
+-- @since 0.1.0
+skipSpace :: Atto.Parser ()
+skipSpace = Atto.skipWhile $ \w -> w == 0x20 || w == 0x0a || w == 0x0d || w == 0x09
+
+-- | Use a comma for delimiter.
+--
+-- @since 0.1.0
+commaParser ::
+     Char
+  -- ^ Terminating character.
+  -> Atto.Parser ()
+commaParser = delimiterParser (Atto.word8 0x2c Atto8.<?> "','")
+
+-- | Parser for delimiter with terminating character
+--
+-- @since 0.1.0
+delimiterParser :: Atto.Parser a -> Char -> Atto.Parser ()
+delimiterParser dp t =
+  skipSpace <* (void dp <|> expectTermination)
   where
     expectTermination =
       Atto8.peekChar >>= \case
@@ -153,27 +261,68 @@ delimitedParser d t =
           | c /= t -> fail $ "Unexpected delimiter: " <> show c
         _ -> pure ()
 
-
-valueParser :: Atto.Parser (Maybe Aeson.Value)
-valueParser =
-  skipSpace *>
-  ((Nothing <$ Atto8.char ']') <|> (Just <$> delimitedParser ',' ']'))
-
+-- | Consume @'['@ with all preceeding space characters
+--
+-- @since 0.1.0
 valuePrefixParser :: Atto.Parser ()
-valuePrefixParser = skipSpace <* Atto8.char '[' <* skipSpace
+valuePrefixParser = skipSpace <* Atto8.char '['
 
-objectEntryParser :: Atto.Parser (Maybe (T.Text, Aeson.Value))
-objectEntryParser =
-  skipSpace *>
-  ((Nothing <$ Atto8.char '}') <|> do
-     k <-
-       (Aeson.jstring Atto.<?> "key") <* skipSpace <*
-       (Atto8.char ':' Atto.<?> "':'")
-     v <- skipSpace *> delimitedParser ',' '}'
-     pure $ Just (k, v))
+-- | Parse a JSON value potentially prefixed by whitespace followed by a suffix
+--
+-- @since 0.1.0
+valueParser ::
+     Atto.Parser a
+  -- ^ Suffix parser
+  -> Atto.Parser Aeson.Value
+valueParser dp = skipSpace *> json' <* dp
 
+-- | Parse a JSON value followed either by a delimiter or terminating
+-- character @']'@, which is also supplied to the delimiter parser. Nothing is
+-- returned when terminating character is reached.
+--
+-- @since 0.1.0
+valueMaybeParser ::
+     (Char -> Atto.Parser a)
+  -- ^ Delimiter parser (accepts terminating character as argument)
+  -> Atto.Parser (Maybe Aeson.Value)
+valueMaybeParser dp =
+  let t = ']'
+   in skipSpace *> ((Nothing <$ Atto8.char t) <|> (Just <$> json' <* dp t))
+
+-- | Consume @'{'@ with all preceeding space characters
+--
+-- @since 0.1.0
 objectEntryPrefixParser :: Atto.Parser ()
-objectEntryPrefixParser = skipSpace <* Atto8.char '{' <* skipSpace
+objectEntryPrefixParser = skipSpace <* Atto8.char '{'
 
-skipSpace :: Atto.Parser ()
-skipSpace = Atto.skipWhile $ \w -> w == 0x20 || w == 0x0a || w == 0x0d || w == 0x09
+
+-- | Parse JSON object key followed by a colon
+--
+-- @since 0.1.0
+keyParser :: Atto.Parser T.Text
+keyParser =
+  skipSpace *>
+  (Aeson.jstring Atto.<?> "key") <*
+  skipSpace <*
+  (Atto.word8 0x3a Atto.<?> "':'")
+
+-- | Parse a JSON key value pair followed by a suffix
+--
+-- @since 0.1.0
+objectEntryParser ::
+     Atto.Parser a
+  -- ^ Suffix parser
+  -> Atto.Parser (T.Text, Aeson.Value)
+objectEntryParser dp = (,) <$> keyParser <*> valueParser dp
+
+
+-- | Parse JSON key value pairs followed either by a delimiter or terminating
+-- character @']'@, which is also supplied to the delimiter parser. Nothing is
+-- returned when terminating character is reached.
+--
+-- @since 0.1.0
+objectEntryMaybeParser :: (Char -> Atto.Parser a) -> Atto.Parser (Maybe (T.Text, Aeson.Value))
+objectEntryMaybeParser dp =
+  let t = '}'
+   in skipSpace *>
+      ((Nothing <$ Atto8.char t) <|> (Just <$> objectEntryParser (dp t)))

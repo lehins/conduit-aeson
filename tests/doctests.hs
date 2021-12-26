@@ -1,18 +1,7 @@
-{-# LANGUAGE CPP #-}
 module Main where
 
-#if __GLASGOW_HASKELL__ >= 802 && __GLASGOW_HASKELL__ < 810
-
-import Test.DocTest (doctest)
+import Test.DocTest (mainFromCabal)
+import System.Environment (getArgs)
 
 main :: IO ()
-main = doctest ["src"]
-
-#else
-
--- TODO: fix doctest support
-main :: IO ()
-main =
-  putStrLn "\nDoctests are not supported for ghc version 8.2 and prior as well as 8.10 and newer\n"
-
-#endif
+main = mainFromCabal "conduit-aeson" =<< getArgs
