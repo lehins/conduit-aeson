@@ -15,7 +15,7 @@ infinite streams of JSON objects.
 
 | Github Actions | Coveralls | Hackage | Nightly | LTS |
 |:--------------:|:---------:|:-------:|:-------:|:---:|
-| [![Build Status][GA-badge]][GA-link] | [![Coverage Status][Coveralls-badge]][Coveralls-link] | [![Hackage][Hackage-badge][Hackage-link] | [![Nightly][Nightly-badge][Nightly-link] | [![LTS][LTS-badge][LTS-link]
+| [![Build Status][GA-badge]][GA-link] | [![Coverage Status][Coveralls-badge]][Coveralls-link] | [![Hackage][Hackage-badge]][Hackage-link] | [![Nightly][Nightly-badge]][Nightly-link] | [![LTS][LTS-badge]][LTS-link]
 
 [GA-badge]: https://github.com/lehins/conduit-aeson/workflows/CI/badge.svg
 [GA-link]: https://github.com/lehins/conduit-aeson/actions
