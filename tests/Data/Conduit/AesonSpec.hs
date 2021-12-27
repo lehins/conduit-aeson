@@ -39,13 +39,15 @@ spec :: Spec
 spec = do
   describe "roundtrips" $ do
     prop "conduitArray" $ \(xs :: [Value]) -> do
-        xs' <-
-          runConduit
-            (sourceLazy (encode (Array (fromList xs))) .| conduitArray .| sinkList)
-        xs' `shouldBe` xs
+      xs' <-
+        runConduit
+          (sourceLazy (encode (Array (fromList xs))) .| conduitArray .| sinkList)
+      xs' `shouldBe` xs
     prop "conduitObject" $ \(ls :: [(String, Value)]) -> do
-        let xs = Map.fromList ls
-        xs' <-
-          runConduit
-            (sourceLazy (encode (listToObject (Map.toAscList xs))) .| conduitObject .| sinkList)
-        Map.fromList xs' `shouldBe` xs
+      let xs = Map.fromList ls
+      xs' <-
+        runConduit
+          (sourceLazy (encode (listToObject (Map.toAscList xs))) .|
+           conduitObject .|
+           sinkList)
+      Map.fromList xs' `shouldBe` xs

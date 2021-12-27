@@ -57,17 +57,100 @@ data ParserError
   -- ^ Attoparsec parser failure
   | AesonParserError String
   -- ^ Aeson parser failure
-  | NotTerminatedInput
+  | NonTerminatedInput
   -- ^ Parser failure when end of input was reached without proper termination.
   deriving Show
 instance Exception ParserError
+
+
+-- | Parse a top level array into a stream of json values.  Throws a
+-- `ParserError` on invalid input, see `conduitArrayEither` for more graceful
+-- error handling.
+--
+-- ===__Examples__
+--
+-- >>> :set -XTypeApplications
+-- >>> :set -XOverloadedStrings
+-- >>> import Conduit
+-- >>> runConduit $ yield ("[1,2,3,4]") .| conduitArray @Int .| printC
+-- 1
+-- 2
+-- 3
+-- 4
+--
+-- @since 0.1.0
+conduitArray ::
+     forall v m. (FromJSON v, MonadThrow m)
+  => ConduitM BS.ByteString v m ()
+conduitArray = conduitArrayEither .| mapMC (either throwM pure)
+
+-- | Same as `conduitArray`, parse a top level array into a stream of values,
+-- but produce @`Left` `ParserError`@ instead of failing immediately with an
+-- exception.
+--
+-- @since 0.1.0
+conduitArrayEither ::
+     forall v m. (FromJSON v, Monad m)
+  => ConduitM BS.ByteString (Either ParserError v) m ()
+conduitArrayEither = conduitArrayParserEither .| stopOnNothing .| mapC toValue
+  where
+    toValue (Left err) = Left err
+    toValue (Right (_, v)) = first AesonParserError $ Aeson.parseEither Aeson.parseJSON v
+
+-- | Parse a top level array as a stream of JSON values. Expects opening and
+-- closing braket @'['@ and @']'@ at the beginning and the end of the stream
+-- respectfully. `Nothing` indicates terminating closing square braket has been
+-- reached, but it does not mean there are no left over bytes in the input stream.
+--
+-- @since 0.1.0
+conduitArrayParserEither ::
+     Monad m
+  => ConduitM  BS.ByteString (Either ParseError (PositionRange, Maybe Value)) m ()
+conduitArrayParserEither = do
+  sinkParserEither valuePrefixParser >>= \case
+    Left err -> yield $ Left err
+    Right () -> conduitParserEither (valueMaybeParser commaParser)
+
+-- | Parse a stream of JSON values. Expects that there are no opening or closing
+-- top level array braces @[@ and @]@. Could be very useful for consuming
+-- infinite streams of log entries, where each entry is formatted as a JSON
+-- value.
+--
+-- ===__Examples__
+--
+-- Parse a new line delimited JSON values.
+--
+-- >>> import Conduit
+-- >>> import Data.ByteString.Char8 (ByteString, pack)
+-- >>> import Data.Attoparsec.ByteString.Char8 (char8)
+-- >>> let input = pack "{\"foo\":1}\n{\"bar\":2}\n" :: ByteString
+-- >>> let parser = conduitArrayParserNoStartEither (char8 '\n')
+-- >>> runConduit (yield input .| parser .| printC)
+-- Right (1:1 (0)-2:1 (10),Object (fromList [("foo",Number 1.0)]))
+-- Right (2:1 (10)-3:1 (20),Object (fromList [("bar",Number 2.0)]))
+--
+-- Or a simple comma delimited list:
+--
+-- >>> runConduit $ yield (pack "1,2,3,\"Haskell\",") .| conduitArrayParserNoStartEither (char8 ',') .| printC
+-- Right (1:1 (0)-1:3 (2),Number 1.0)
+-- Right (1:3 (2)-1:5 (4),Number 2.0)
+-- Right (1:5 (4)-1:7 (6),Number 3.0)
+-- Right (1:7 (6)-1:17 (16),String "Haskell")
+--
+-- @since 0.1.0
+conduitArrayParserNoStartEither ::
+     forall m a. Monad m
+  => Atto.Parser a
+  -- ^ Delimiter parser (in JSON it is a comma @','@)
+  -> ConduitM BS.ByteString (Either ParseError (PositionRange, Value)) m ()
+conduitArrayParserNoStartEither = conduitParserEither . valueParser
 
 
 -- | Parse a top level object into a stream of key/value pairs. Throws a
 -- `ParserError` on invalid input, see `conduitObjectEither` for more graceful
 -- error handling.
 --
--- ====__Examples__
+-- ===__Examples__
 --
 -- >>> :set -XOverloadedStrings
 -- >>> :set -XTypeApplications
@@ -114,20 +197,22 @@ conduitObjectEither = conduitObjectParserEither .| stopOnNothing .| mapC toKeyVa
 
 -- | Parse a top level key value mapping. Expects opening and closing braces
 -- @'{'@ and @'}'@. `Nothing` indicates terminating closing curly brace has been
--- reached.
+-- reached, but it does not mean there are no left over bytes in the input stream.
 --
 -- @since 0.1.0
 conduitObjectParserEither ::
      Monad m
-  => ConduitM  BS.ByteString (Either ParseError (PositionRange, Maybe (T.Text, Value))) m ()
+  => ConduitM BS.ByteString (Either ParseError (PositionRange, Maybe (T.Text, Value))) m ()
 conduitObjectParserEither = do
   sinkParserEither objectEntryPrefixParser >>= \case
     Left err -> yield $ Left err
     Right () -> conduitParserEither (objectEntryMaybeParser commaParser)
 
--- | Expects that there is no opening of a top level object curly brace @{@, but
--- will stop as soon as the closing one @}@ is reached. It is suitable for infinite
--- streams of key value pairs delimited by a custom character (eg. a new line)
+-- | Parse a stream of key/value pairs. Expects that there are no opening or
+-- closing top level curly braces @'{'@ and @'}'@. It is suitable for infinite
+-- streams of key value/pairs delimited by a custom character, eg. a new line.
+--
+-- ===__Examples__
 --
 -- >>> import Conduit
 -- >>> import Data.ByteString.Char8 (ByteString, pack)
@@ -147,95 +232,13 @@ conduitObjectParserNoStartEither ::
 conduitObjectParserNoStartEither = conduitParserEither . objectEntryParser
 
 
--- | Parse a top level array into a stream of json values.  Throws a
--- `ParserError` on invalid input, see `conduitArrayEither` for more graceful
--- error handling.
---
--- ====__Examples__
---
--- >>> :set -XTypeApplications
--- >>> :set -XOverloadedStrings
--- >>> import Conduit
--- >>> runConduit $ yield ("[1,2,3,4]") .| conduitArray @Int .| printC
--- 1
--- 2
--- 3
--- 4
---
--- @since 0.1.0
-conduitArray ::
-     forall v m. (FromJSON v, MonadThrow m)
-  => ConduitM BS.ByteString v m ()
-conduitArray = conduitArrayEither .| mapMC (either throwM pure)
-
--- | Parse a top level key value mapping. Expects opening and closing braces
--- @'{'@ and @'}'@. `Nothing` indicates terminating closing curly brace has been
--- reached.
---
--- @since 0.1.0
-conduitArrayEither ::
-     forall v m. (FromJSON v, Monad m)
-  => ConduitM BS.ByteString (Either ParserError v) m ()
-conduitArrayEither = conduitArrayParserEither .| stopOnNothing .| mapC toValue
-  where
-    toValue (Left err) = Left err
-    toValue (Right (_, v)) = first AesonParserError $ Aeson.parseEither Aeson.parseJSON v
-
--- | Parse a top level array as a stream of JSON values. Expects opening and
--- closing braket @'['@ and @']'@. `Nothing` indicates terminating closing square
--- braket has been reached.
---
--- @since 0.1.0
-conduitArrayParserEither ::
-     Monad m
-  => ConduitM  BS.ByteString (Either ParseError (PositionRange, Maybe Value)) m ()
-conduitArrayParserEither = do
-  sinkParserEither valuePrefixParser >>= \case
-    Left err -> yield $ Left err
-    Right () -> conduitParserEither (valueMaybeParser commaParser)
-
--- | Parse a stream of JSON values. Expects that there are no opening or closing
--- top level array braces @[@ and @]@. Could be very useful for consuming
--- infinite streams of log entries, where each entry is formatted as a JSON
--- value.
---
--- ====__Examples__
---
--- Parse a new line delimited JSON values.
---
--- >>> import Conduit
--- >>> import Data.ByteString.Char8 (ByteString, pack)
--- >>> import Data.Attoparsec.ByteString.Char8 (char8)
--- >>> let input = pack "{\"foo\":1}\n{\"bar\":2}\n" :: ByteString
--- >>> let parser = conduitArrayParserNoStartEither (char8 '\n')
--- >>> runConduit (yield input .| parser .| printC)
--- Right (1:1 (0)-2:1 (10),Object (fromList [("foo",Number 1.0)]))
--- Right (2:1 (10)-3:1 (20),Object (fromList [("bar",Number 2.0)]))
---
--- Or a simple comma delimited list:
---
--- >>> runConduit $ yield (pack "1,2,3,\"Haskell\",") .| conduitArrayParserNoStartEither (char8 ',') .| printC
--- Right (1:1 (0)-1:3 (2),Number 1.0)
--- Right (1:3 (2)-1:5 (4),Number 2.0)
--- Right (1:5 (4)-1:7 (6),Number 3.0)
--- Right (1:7 (6)-1:17 (16),String "Haskell")
---
--- @since 0.1.0
-conduitArrayParserNoStartEither ::
-     forall m a. Monad m
-  => Atto.Parser a
-  -- ^ Delimiter parser (in JSON it is a comma @','@)
-  -> ConduitM BS.ByteString (Either ParseError (PositionRange, Value)) m ()
-conduitArrayParserNoStartEither = conduitParserEither . valueParser
-
-
 stopOnNothing ::
      Monad m
   => ConduitM (Either ParseError (PositionRange, Maybe a))
               (Either ParserError (PositionRange, a)) m ()
 stopOnNothing = do
   await >>= \case
-    Nothing -> yield $ Left NotTerminatedInput
+    Nothing -> yield $ Left NonTerminatedInput
     Just e
       | Left err <- e -> yield (Left (AttoParserError err)) >> stopOnNothing
       | Right (p, Just r) <- e -> yield (Right (p, r)) >> stopOnNothing
