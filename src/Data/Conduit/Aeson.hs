@@ -43,9 +43,11 @@ import Data.Attoparsec.ByteString as Atto
 import qualified Data.Attoparsec.ByteString.Char8 as Atto8
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
-import Data.Coerce
 import Data.Conduit.Attoparsec
 import qualified Data.Text as T
+#if MIN_VERSION_aeson(1,5,0)
+import Data.Coerce
+#endif
 
 -- | Various reason for failed parsing.
 --
