@@ -27,6 +27,7 @@ module Data.Conduit.Aeson
   , delimiterParser
   , valuePrefixParser
   , valueParser
+  , valueMaybeParser
   , objectEntryPrefixParser
   , objectEntryParser
   , objectEntryMaybeParser
@@ -293,7 +294,7 @@ valueParser dp = skipSpace *> json' <* dp
 -- character @']'@, which is also supplied to the delimiter parser. Nothing is
 -- returned when terminating character is reached.
 --
--- @since 0.1.0
+-- @since 0.1.1
 valueMaybeParser ::
      (Char -> Atto.Parser a)
   -- ^ Delimiter parser (accepts terminating character as argument)
