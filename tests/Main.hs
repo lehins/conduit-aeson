@@ -1,6 +1,6 @@
 module Main where
 
-import Spec
+import Data.Conduit.AesonSpec (spec)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, hSetEncoding, stdout, utf8)
 import Test.Hspec
 

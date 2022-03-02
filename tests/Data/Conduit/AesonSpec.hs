@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -17,8 +18,10 @@ import Test.QuickCheck
 instance Arbitrary T.Text where
   arbitrary = T.pack <$> arbitrary
 
+#if !MIN_VERSION_aeson(2,0,3)
 instance Arbitrary Value where
   arbitrary = sized sizedArbitraryValue
+#endif
 
 sizedArbitraryValue :: Int -> Gen Value
 sizedArbitraryValue n
