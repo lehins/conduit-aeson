@@ -5,6 +5,8 @@ on:
     branches: [ '*' ]
   pull_request:
     branches: [ master ]
+  schedule:
+    - cron: "0 5 * * 5"
 
 defaults: { run: { shell: bash } }
 
@@ -12,27 +14,34 @@ defaults: { run: { shell: bash } }
 
 jobs:
   test-with-stack:
+    if: github.event.pull_request.head.repo.full_name != github.repository
     name: Test with Stack
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
-        resolver: [lts-12, lts-14, lts-16, lts-18, nightly]
+        resolver: [lts-12, lts-14, lts-16, lts-18, lts-19, lts-20, lts-21, nightly]
         include:
           - resolver: lts-12
             ghc: 8.4.4
             # stack-yaml: stack-extra-deps.yaml
           - resolver: lts-14
             ghc: 8.6.5
-            stack-yaml: stack-coveralls.yaml
+            #stack-yaml: stack-coveralls.yaml
           - resolver: lts-16
             ghc: 8.8.4
             # stack-yaml: stack-extra-deps.yaml
           - resolver: lts-18
             ghc: 8.10.7
+          - resolver: lts-19
+            ghc: 9.0.2
+          - resolver: lts-20
+            ghc: 9.2.8
+          - resolver: lts-21
+            ghc: 9.4.5
           - resolver: nightly # reports a problem with happy?!
-            ghc: 9.0.1
+            ghc: 9.6.2
         exclude:
           - resolver: lts-18
             os: windows-latest # Too buggy, occasional ghc crashes
@@ -40,9 +49,10 @@ jobs:
     env:
       STACK_YAML: stack.yaml
       STACK_ARGS: '--resolver ${{ matrix.resolver }} --system-ghc'
-      cache-version: v7 # bump up this version to invalidate currently stored cache
+      cache-version: v8 # bump up this version to invalidate currently stored cache
     steps:
     - uses: actions/checkout@v2
+
     - uses: haskell/actions/setup@v1
       id: setup-haskell-cabal
       name: Setup Haskell
@@ -50,7 +60,7 @@ jobs:
         ghc-version: ${{ matrix.ghc }}
         enable-stack: true
         stack-version: 'latest'
-        cabal-version: '3.6'
+        cabal-version: 'latest'
 
     - name: Cache
       id: cache
@@ -68,17 +78,45 @@ jobs:
       if: matrix.os == 'windows-latest'
       with:
         path: |
-          C:\\Users\\RUNNER~1\\AppData\\Roaming\\stack
           C:\\Users\\RUNNER~1\\AppData\\Local\\Programs\\stack
         key: ${{ runner.os }}-${{ matrix.resolver }}-programs-${{ env.cache-version }}
         restore-keys: |
           ${{ runner.os }}-${{ matrix.resolver }}-programs-${{ env.cache-version }}
-      # - name: Install happy # https://github.com/commercialhaskell/stackage/issues/6252
-      #   if: matrix.resolver == 'nightly'
-      #   run: |
-      #     set -ex
-      #     cabal update
-      #     cabal install happy -f -bootstrap
+    - name: Reset modtime
+      run: |
+        set -ex
+        curl -sSL https://raw.githubusercontent.com/lehins/utils/master/haskell/git-modtime/git-modtime.hs -o git-modtime.hs
+        runhaskell -- git-modtime.hs -f .stack-work-root/tree-contents.txt
+    - name: Build
+      env:
+        COVERALLS_TOKEN: ${{ secrets.COVERALLS_TOKEN }}
+      run: |
+        set -ex
+        if [ "${{ matrix.os }}.${{ matrix.resolver }}" == "ubuntu-latest.lts-19" ] && [ -n "${COVERALLS_TOKEN}" ]; then
+          stack $STACK_ARGS test :tests --coverage --no-run-tests --haddock --no-haddock-deps
+        else
+          stack $STACK_ARGS test --no-run-tests --haddock --no-haddock-deps
+        fi
+    - name: Test
+      env:
+        COVERALLS_TOKEN: ${{ secrets.COVERALLS_TOKEN }}
+      run: |
+        set -ex
+        if [ "${{ matrix.os }}.${{ matrix.resolver }}" == "ubuntu-latest.lts-19" ] && [ -n "${COVERALLS_TOKEN}" ]; then
+          stack $STACK_ARGS test :tests --coverage
+          stack $STACK_ARGS hpc report --all
+          curl -L https://github.com/rubik/stack-hpc-coveralls/releases/download/v0.0.7.0/shc-Linux-X64.tar.bz2 | tar xj shc
+          ./shc --repo-token="$COVERALLS_TOKEN" --partial-coverage --fetch-coverage combined custom
+        else
+          stack $STACK_ARGS test :doctests
+          stack $STACK_ARGS test :tests
+        fi
+
+
+
+
+
+
     - name: Build
       env:
         COVERALLS_TOKEN: ${{ secrets.COVERALLS_TOKEN }}
