@@ -112,42 +112,6 @@ jobs:
           stack $STACK_ARGS test :tests
         fi
 
-
-
-
-
-
-    - name: Build
-      env:
-        COVERALLS_TOKEN: ${{ secrets.COVERALLS_TOKEN }}
-      run: |
-        set -ex
-        [ -n "${{ matrix.stack-yaml }}" ] && STACK_YAML=${{ matrix.stack-yaml }}
-        curl -sSL https://raw.githubusercontent.com/lehins/utils/5d9b17f2f084ce54978dbd71974970483063a540/haskell/git-modtime/git-modtime.hs -o git-modtime.hs
-        mkdir -p .stack-work
-        # Windows is confused about stack's default user directory
-        stack $STACK_ARGS runghc -- git-modtime.hs -f .stack-work/tree-contents.txt
-        if [ "${{ matrix.os }}.${{ matrix.resolver }}" == "ubuntu-latest.lts-14" ] && [ -n "${COVERALLS_TOKEN}" ]; then
-          stack $STACK_ARGS build :tests --coverage --test --no-run-tests --haddock --no-haddock-deps
-        else
-          stack $STACK_ARGS build --test --no-run-tests --haddock --no-haddock-deps
-        fi
-    - name: Test
-      env:
-        COVERALLS_TOKEN: ${{ secrets.COVERALLS_TOKEN }}
-      run: |
-        set -ex
-        [ -n "${{ matrix.stack-yaml }}" ] && STACK_YAML=${{ matrix.stack-yaml }}
-        if [ "${{ matrix.os }}.${{ matrix.resolver }}" == "ubuntu-latest.lts-14" ] && [ -n "${COVERALLS_TOKEN}" ]; then
-          stack $STACK_ARGS test :tests --coverage --haddock --no-haddock-deps
-          stack $STACK_ARGS hpc report --all
-          curl -L https://github.com/rubik/stack-hpc-coveralls/releases/download/v0.0.6.1/shc-linux-x64-8.8.4.tar.bz2 | tar xj shc
-          ./shc --repo-token="$COVERALLS_TOKEN" --partial-coverage --fetch-coverage combined custom
-        else
-          stack $STACK_ARGS test :doctests
-          stack $STACK_ARGS test :tests
-        fi
-
   test-with-cabal:
     name: Test with Cabal
     runs-on: ${{ matrix.os }}
